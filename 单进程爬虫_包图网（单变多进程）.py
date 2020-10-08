@@ -52,8 +52,7 @@ if __name__ == '__main__':
 
     # 不用进程池
     # from multiprocessing import Process
-    # for i in range(1,11):
-    #     p_getUrl = Process(get_video,args=) # 这样写和单进程一样
-    #     p_downUrl = Process(down_video,args=)
+    # for i in range(1,11): # 相当于创建了 10 进程
+    #     p_getUrl = Process(get_video,args=[i]) # 这样写和单进程一样
     #     p_getUrl.start()
-    #     p_downUrl.start()
+
