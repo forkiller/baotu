@@ -1,0 +1,87 @@
+import time
+import aiohttp
+import asyncio
+import logging
+from lxml import etree
+from fake_useragent import UserAgent
+
+headers = {
+    "Referer": "https://ibaotu.com/",
+    "User-Agent": UserAgent().random
+}
+
+# 设置最大并发数
+CONCURRENCY = 5
+semaphore = asyncio.Semaphore(CONCURRENCY)
+session = None
+# 创建日志
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s: %(message)s')
+
+
+async def parse_html(resp):
+    """解析网页"""
+    xml = etree.HTML(await resp.read())  # 不能用response.text() await 后面接协程对象、生成器（协程对象）、迭代器（协程对象）
+    tits = xml.xpath('//li/div/div/div/a/span[@class="video-title"]/text()')
+    srcs = xml.xpath('//li/div/div/a/div/video/@src')
+    tit_src = list(zip(tits, srcs))
+    return tit_src
+    # 列表、元组、字典、集合、字符串、数字不是协程对象，不用加 await
+
+
+# async 表示异步函数
+async def spider_index(page):
+    # 定义协程上下文变量
+    async with semaphore:
+        try:
+            url = f"https://ibaotu.com/shipin/7-0-0-0-0-{page}.html"
+            logging.info(f'scraping {url}')
+            # 用 async 表示异步请求
+            timeout = aiohttp.ClientTimeout(total=1)  # 超时设置
+            async with session.get(url, headers=headers, timeout=timeout) as resp:
+                if resp.status_code == 200:
+                    return await parse_html(resp)
+                else:
+                    logging.error(f'session.get failed {url}', exc_info=True)
+        except Exception as e:
+            logging.error(f'error occurred while scraping {url}', exc_info=True)
+            print(e)
+
+
+async def spider_detail(tit_srcs):
+    async with semaphore:
+        try:
+            for tit_src in tit_srcs:
+                tit = tit_src[0]
+                src = tit_src[1]
+                filename = f'D:/tqdmTest/{tit}.mp4'
+                async with session.get(f"http:{src}", headers=headers) as resp:
+                    if resp.status_code == 200:
+                        with open(filename, 'wb') as f:
+                            f.write(await resp.read())
+                    else:
+                        logging.error(f'session.get failed http:{src}', exc_info=True)
+        except Exception as e:
+            print(e.args)
+
+
+async def main():
+    global session
+    session = aiohttp.ClientSession()
+    try:
+        # 1.创建爬取index 列表页任务
+        spider_index_task = [asyncio.ensure_future(spider_index(page)) for page in range(1, 11)]
+        tit_src_list = await asyncio.gather(*spider_index_task)
+
+        # 2.创建爬取详情页任务
+        spider_detail_tasks = [asyncio.ensure_future(spider_detail(tit_srcs)) for tit_srcs in tit_src_list]
+        await asyncio.wait(spider_detail_tasks)
+    finally:
+        await session.close()
+
+
+if __name__ == '__main__':
+    start = time.time()
+    asyncio.get_event_loop().run_until_complete(main())
+    end = time.time()
+    print(f"cost time {end - start:.2f}s")
